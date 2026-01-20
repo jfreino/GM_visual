@@ -98,32 +98,45 @@ if prompt := st.chat_input("Tu acción..."):
                 chat = model.start_chat(history=history_payload[:-1]) # Historial menos el último mensaje que enviamos ahora
                 response = chat.send_message(full_prompt)
                 
-                # Limpiar la respuesta por si Gemini pone ```json ... ```
-                text_response = response.text.strip()
-                if text_response.startswith("```json"):
-                    text_response = text_response.replace("```json", "").replace("```", "")
-                
-                # Parsear JSON
-                data = json.loads(text_response)
-                narracion = data["historia"]
-                visual_prompt = data["imagen_prompt"]
-                
-                # Mostrar Texto
-                st.markdown(narracion)
-                
-                # Mostrar Imagen
-                image_url = get_image_url(visual_prompt)
-                st.image(image_url, caption="Visualización de la escena")
-                
-                # Guardar en el historial (guardamos el JSON raw para poder reconstruirlo luego)
-                st.session_state.messages.append({"role": "model", "parts": [text_response]})
-                
-            except Exception as e:
-                st.error(f"Error narrativo: {e}")
-                # Fallback por si el JSON falla
-                st.markdown("El narrador se ha confundido, intenta otra acción.")
+               # ... (dentro del bloque donde generas la respuesta)
 
+try:
+    chat = model.start_chat(history=history_payload[:-1])
+    response = chat.send_message(f"{system_instruction}\n\nAcción del usuario: {prompt}")
+    
+    # --- NUEVA FORMA DE EXTRAER EL TEXTO (A prueba de Gemini 3) ---
+    text_response = ""
+    
+    # Verificamos si hay respuesta y si no ha sido bloqueada
+    if response.candidates and response.candidates[0].content.parts:
+        # Unimos todas las partes de texto (por si vienen separadas de los pensamientos)
+        parts = [p.text for p in response.candidates[0].content.parts if hasattr(p, 'text')]
+        text_response = "".join(parts).strip()
+    else:
+        # Si finish_reason es 1 (STOP) pero no hay partes, puede ser un error de la API
+        st.warning(f"El modelo terminó (razón {response.candidates[0].finish_reason}), pero no envió texto.")
+        st.stop()
 
+    # Limpieza de JSON (igual que antes)
+    if text_response.startswith("```json"):
+        text_response = text_response.replace("```json", "").replace("```", "")
+    
+    # Intentar parsear el JSON
+    data = json.loads(text_response)
+    
+    # 1. Mostrar texto narrativo
+    st.markdown(data["historia"])
+    
+    # 2. Mostrar imagen
+    if "imagen_prompt" in data and data["imagen_prompt"]:
+        img_url = get_image_url(data["imagen_prompt"])
+        st.image(img_url, caption="Visualización con Pollinations")
+    
+    # Guardar en el historial
+    st.session_state.messages.append({"role": "model", "parts": [text_response]})
 
-
-
+except json.JSONDecodeError:
+    st.error("Gemini 3 generó un formato extraño. Reintentando...")
+    st.write(text_response) # Para que veas qué ha devuelto exactamente
+except Exception as e:
+    st.error(f"Error crítico con Gemini 3: {e}")
