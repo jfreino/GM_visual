@@ -75,23 +75,43 @@ model = genai.GenerativeModel(
 # --- 3. FUNCIONES DE APOYO ---
 
 def generate_flux_image(visual_prompt):
-    """Genera imagen usando FLUX.1-schnell en Hugging Face (Alta calidad/Sin censura)"""
+    """Genera imagen con reintentos automáticos si el modelo está cargando"""
     API_URL = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     
-    # Enriquecemos el prompt para mantener el estilo artístico
     pulp_prompt = f"Cinematic 1930s pulp adventure style, gritty atmosphere, {visual_prompt}, highly detailed, oil painting texture, dramatic lighting"
-    
     payload = {"inputs": pulp_prompt, "parameters": {"width": 1024, "height": 768}}
     
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload, timeout=40)
-        if response.status_code == 200:
-            return response.content # Devuelve los bytes de la imagen
-        else:
-            return None
-    except:
-        return None
+    max_retries = 5  # Intentaremos hasta 5 veces
+    wait_time = 8    # Esperaremos 8 segundos entre intentos
+    
+    for i in range(max_retries):
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+            
+            # Caso 1: Todo OK
+            if response.status_code == 200:
+                return response.content
+            
+            # Caso 2: El modelo se está cargando (Error 503)
+            elif response.status_code == 503:
+                st.toast(f"⏳ El generador de imágenes está despertando... (Intento {i+1}/{max_retries})")
+                time.sleep(wait_time)
+                continue # Reintentar
+            
+            # Caso 3: Error de cuota o límite (Error 429)
+            elif response.status_code == 429:
+                st.toast("⚠️ Límite de Hugging Face alcanzado. Esperando un poco más...")
+                time.sleep(wait_time * 2)
+                continue
+                
+            else:
+                return None
+        except Exception as e:
+            print(f"Error de conexión: {e}")
+            time.sleep(2)
+            
+    return None
 
 def clean_json_response(text):
     """Extrae el JSON del texto por si el modelo añade explicaciones"""
@@ -196,3 +216,4 @@ if prompt := st.chat_input("Escribe tu acción aquí..."):
 
             except Exception as e:
                 st.error(f"Error en el velo de la realidad: {e}")
+
