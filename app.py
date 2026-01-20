@@ -94,14 +94,9 @@ if prompt := st.chat_input("Tu acción..."):
             # Añadir la instrucción actual
             full_prompt = f"{system_instruction}\n\nResponde a esto: {prompt}"
             
-            try:
-                chat = model.start_chat(history=history_payload[:-1]) # Historial menos el último mensaje que enviamos ahora
-                response = chat.send_message(full_prompt)
-                
-               # ... (dentro del bloque donde generas la respuesta)
 
 try:
-    chat = model.start_chat(history=history_payload[:-1])
+    chat = model.start_chat(history=history_payload[:-1]) # Historial menos el último mensaje que enviamos ahora
     response = chat.send_message(f"{system_instruction}\n\nAcción del usuario: {prompt}")
     
     # --- NUEVA FORMA DE EXTRAER EL TEXTO (A prueba de Gemini 3) ---
@@ -140,3 +135,4 @@ except json.JSONDecodeError:
     st.write(text_response) # Para que veas qué ha devuelto exactamente
 except Exception as e:
     st.error(f"Error crítico con Gemini 3: {e}")
+
