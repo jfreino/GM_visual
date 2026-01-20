@@ -1,4 +1,4 @@
-mport streamlit as st
+import streamlit as st
 import google.generativeai as genai
 import time
 import json
@@ -122,6 +122,7 @@ if prompt := st.chat_input("Tu acción..."):
                 st.error(f"Error narrativo: {e}")
                 # Fallback por si el JSON falla
                 st.markdown("El narrador se ha confundido, intenta otra acción.")
+
 
 
 
