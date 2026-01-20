@@ -68,7 +68,7 @@ def get_image_url(prompt):
     # Añadimos un timestamp para evitar que el navegador cachee la imagen de error
     seed = int(time.time())
     clean_prompt = re.sub(r'[^\w\s]', '', prompt).replace(" ", "%20")
-    return f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1280&height=720&seed={seed}&nologo=true&enhance=true"
+    return f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1280&height=720&seed={seed}&nologo=true&enhance=true&model=flux"
 
 # --- 4. RENDERIZAR CHAT ---
 for msg in st.session_state.messages:
@@ -152,3 +152,4 @@ if prompt := st.chat_input("Dime qué haces..."):
             
             except Exception as e:
                 st.error(f"Error técnico: {e}")
+
