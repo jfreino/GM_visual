@@ -6,6 +6,29 @@ import json
 # --- CONFIGURACIÓN ---
 st.set_page_config(page_title="Storyteller Visual", page_icon="🐉")
 
+# --- CONFIGURACIÓN DEL MODELO CON FILTROS RELAJADOS ---
+generation_config = {
+    "temperature": 0.9,
+    "top_p": 0.95,
+    "top_k": 40,
+    "max_output_tokens": 2048,
+    "response_mime_type": "application/json", # Forzamos a que la salida sea JSON
+}
+
+# Relajamos los filtros para que no se bloquee por temas de RPG (combate, etc.)
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+]
+
+model = genai.GenerativeModel(
+    model_name='gemini-3-flash-preview',
+    generation_config=generation_config,
+    safety_settings=safety_settings
+)
+
 # Título y descripción
 st.title("🐉 Aventuras RPG Infinitas")
 st.caption("Narrado por Gemini Pro | Ilustrado por Pollinations.ai")
@@ -104,47 +127,42 @@ if prompt := st.chat_input("Tu acción..."):
                 history_payload.append({"role": role_api, "parts": [content]})
             
             try:
-                # Iniciamos el chat con el historial (menos el último mensaje que enviamos ahora)
                 chat = model.start_chat(history=history_payload[:-1])
                 
-                # Enviamos el mensaje con la instrucción de sistema
-                full_query = f"{system_instruction}\n\nAcción del usuario: {prompt}"
-                response = chat.send_message(full_query)
+                # Al haber configurado response_mime_type: application/json arriba, 
+                # Gemini 3 ya sabe que solo debe escupir JSON.
+                response = chat.send_message(f"Acción del usuario: {prompt}")
                 
-                # --- EXTRACCIÓN ROBUSTA DE TEXTO ---
-                text_response = ""
-                if response.candidates and response.candidates[0].content.parts:
-                    # Unimos todas las partes de texto (evita errores en modelos de pensamiento)
-                    parts = [p.text for p in response.candidates[0].content.parts if hasattr(p, 'text')]
-                    text_response = "".join(parts).strip()
-                else:
-                    st.error("El modelo no devolvió contenido válido.")
+                # --- DIAGNÓSTICO DE RESPUESTA ---
+                if not response.candidates or not response.candidates[0].content.parts:
+                    # Si no hay partes, miramos la razón técnica
+                    reason = response.candidates[0].finish_reason if response.candidates else "Desconocida"
+                    st.error(f"El modelo no devolvió texto. Razón técnica: {reason}")
+                    
+                    # Si fue por seguridad, avisamos
+                    if "SAFETY" in str(reason):
+                        st.warning("⚠️ La respuesta fue bloqueada por los filtros de seguridad de Google. Intenta una acción menos violenta o explícita.")
                     st.stop()
 
-                # Limpieza de posibles bloques de código Markdown
-                if text_response.startswith("```"):
-                    # Elimina ```json al principio y ``` al final
-                    text_response = text_response.split("```")[1]
-                    if text_response.startswith("json"):
-                        text_response = text_response[4:]
+                # Extraer texto de forma segura
+                text_response = response.candidates[0].content.parts[0].text
                 
-                # 3. Parsear JSON y mostrar resultados
-                data = json.loads(text_response.strip())
+                # 3. Parsear JSON (Gemini 3 con mime_type suele devolver JSON puro, sin ```json)
+                text_clean = text_response.strip()
+                if text_clean.startswith("```"):
+                    text_clean = text_clean.split("```")[1]
+                    if text_clean.startswith("json"): text_clean = text_clean[4:]
                 
-                # Mostrar texto narrativo
-                st.markdown(data.get("historia", "El narrador guarda silencio..."))
+                data = json.loads(text_clean)
                 
-                # Mostrar imagen
+                # Mostrar resultados
+                st.markdown(data.get("historia", "..."))
                 if "imagen_prompt" in data:
-                    img_url = get_image_url(data["imagen_prompt"])
-                    st.image(img_url, caption="Escena actual")
+                    st.image(get_image_url(data["imagen_prompt"]))
                 
-                # Guardar la respuesta completa en el historial para el próximo turno
                 st.session_state.messages.append({"role": "model", "parts": [text_response]})
                 
-            except json.JSONDecodeError as e:
-                st.error("Error al interpretar el JSON del narrador.")
-                st.info("Respuesta cruda del modelo:")
-                st.code(text_response)
             except Exception as e:
-                st.error(f"Error crítico: {e}")
+                st.error(f"Error en el turno: {e}")
+                st.info("Respuesta cruda para depurar:")
+                st.code(response.text if 'response' in locals() else "Sin respuesta")
