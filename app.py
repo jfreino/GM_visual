@@ -2,20 +2,47 @@ import streamlit as st
 import google.generativeai as genai
 import time
 import json
+import os
 
-# --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Storyteller Visual", page_icon="🐉")
+# --- 1. CONFIGURACIÓN DE PÁGINA (MODO ANCHO) ---
+st.set_page_config(
+    page_title="Storyteller RPG - Pulp Cthulhu", 
+    page_icon="🐙", 
+    layout="wide"  # Esto hace que la ventana use todo el ancho de la pantalla
+)
 
-# --- CONFIGURACIÓN DEL MODELO CON FILTROS RELAJADOS ---
+# Estilo CSS personalizado para mejorar la lectura y el ancho del chat
+st.markdown("""
+    <style>
+    .stChatMessage {
+        max-width: 90% !important;
+        margin: auto !important;
+    }
+    .stMarkdown {
+        font-size: 1.1rem !important;
+        line-height: 1.6 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+st.title("🐙 Pulp Cthulhu: Aventuras en los años 30")
+st.caption("Gemini 3 Flash Preview | Visuales por Pollinations")
+
+# --- 2. CONFIGURACIÓN DE API Y MODELO ---
+api_key = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+if not api_key:
+    st.error("Falta la API Key en los Secrets.")
+    st.stop()
+
+genai.configure(api_key=api_key)
+
 generation_config = {
-    "temperature": 0.9,
+    "temperature": 1.0, # Más creatividad para el rol
     "top_p": 0.95,
-    "top_k": 40,
-    "max_output_tokens": 2048,
-    "response_mime_type": "application/json", # Forzamos a que la salida sea JSON
+    "response_mime_type": "application/json", # Intentamos forzar JSON
 }
 
-# Relajamos los filtros para que no se bloquee por temas de RPG (combate, etc.)
+# Filtros desactivados para que no censure monstruos ni acción
 safety_settings = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -29,140 +56,85 @@ model = genai.GenerativeModel(
     safety_settings=safety_settings
 )
 
-# Título y descripción
-st.title("🐉 Aventuras RPG Infinitas")
-st.caption("Narrado por Gemini Pro | Ilustrado por Pollinations.ai")
-
-# Configurar API Key de Google (Se coge de los 'Secrets' de Streamlit)
-# Si lo pruebas en local, puedes cambiar st.secrets["GOOGLE_API_KEY"] por tu clave directa "AIza..."
-try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-except:
-    st.warning("⚠️ No se ha detectado la API Key. Configúrala en los Secrets de Streamlit.")
-    st.stop()
-
-# Configurar el modelo
-model = genai.GenerativeModel('gemini-3-flash-preview')
-
-# --- ESTADO DE LA SESIÓN (MEMORIA) ---
+# --- 3. ESTADO DE LA SESIÓN ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
-    # Mensaje inicial del sistema para dar contexto
-    st.session_state.messages.append({
-        "role": "model", 
-        "parts": ["¡Bienvenido aventurero! ¿Dónde comienza nuestra historia hoy? (Dime un género o escenario)"]
-    })
+    # Mensaje inicial sin JSON para que el primer saludo sea natural
+    st.session_state.messages.append({"role": "model", "parts": ["¡Bienvenido a la aventura! Estoy listo para narrar tu historia de Pulp Cthulhu."]})
 
-# --- FUNCIÓN PARA GENERAR URL DE IMAGEN ---
 def get_image_url(prompt):
-    # Pollinations.ai es gratis y funciona por URL. 
-    # Añadimos 'enhance=true' para que mejore el prompt visualmente.
     base_url = "https://image.pollinations.ai/prompt/"
-    # Limpiamos el prompt para la url
     clean_prompt = prompt.replace(" ", "%20")
-    # Añadimos una semilla aleatoria para que no cachee siempre la misma imagen
     seed = int(time.time())
-    final_url = f"{base_url}{clean_prompt}?width=1024&height=768&seed={seed}&nologo=true"
-    return final_url
+    return f"{base_url}{clean_prompt}?width=1280&height=720&seed={seed}&nologo=true&enhance=true"
 
-# --- INTERFAZ DE CHAT ---
-# Mostrar historia previa
+# --- 4. RENDERIZAR CHAT ---
 for msg in st.session_state.messages:
-    if msg["role"] == "user":
-        with st.chat_message("user"):
-            st.markdown(msg["parts"][0])
-    elif msg["role"] == "model":
-        with st.chat_message("assistant"):
-            # Si el mensaje guardado es un diccionario complejo (nuestro JSON), lo parseamos
-            try:
-                content = msg["parts"][0]
-                # A veces guardamos texto plano, a veces JSON. 
-                if "{" in content and "imagen_prompt" in content:
-                    data = json.loads(content)
-                    st.markdown(data["historia"])
-                    st.image(get_image_url(data["imagen_prompt"]), caption="Generado en tiempo real")
-                else:
-                    st.markdown(content)
-            except:
-                st.markdown(msg["parts"][0])
+    with st.chat_message(msg["role"]):
+        content = msg["parts"][0]
+        try:
+            # Si es JSON, mostramos historia e imagen
+            data = json.loads(content)
+            st.markdown(data.get("historia", ""))
+            if "imagen_prompt" in data:
+                st.image(get_image_url(data["imagen_prompt"]))
+        except:
+            # Si no es JSON (como el saludo inicial), mostramos texto normal
+            st.markdown(content)
 
-# --- PROCESAR INPUT USUARIO ---
-if prompt := st.chat_input("Tu acción..."):
-    # 1. Mostrar mensaje del usuario en la pantalla
-    with st.chat_message("user"):
-        st.markdown(prompt)
-    
-    # Guardar en el historial de la sesión
+# --- 5. LÓGICA DE INTERACCIÓN ---
+if prompt := st.chat_input("Dime qué haces..."):
+    st.chat_message("user").markdown(prompt)
     st.session_state.messages.append({"role": "user", "parts": [prompt]})
 
-    # 2. Generar respuesta de la IA
     with st.chat_message("assistant"):
-        with st.spinner("Gemini 3 está narrando y dibujando..."):
+        with st.spinner("Narrando la siguiente escena..."):
             
-            # Instrucción de sistema para asegurar el formato
+            # Instrucción muy estricta para el JSON
             system_instruction = """
-            Eres un narrador de rol experto. 
-            Responde ÚNICAMENTE con un objeto JSON. 
-            NO incluyas razonamientos internos ni etiquetas de Markdown fuera del JSON.
-            Formato:
+            Eres un narrador de rol para el sistema Pulp Cthulhu. 
+            IMPORTANTE: Tu respuesta DEBE ser SIEMPRE un objeto JSON.
+            No saludes, no te desvíes. 
             {
-                "historia": "La narración aquí...",
-                "imagen_prompt": "Descripción visual en inglés para la imagen..."
+                "historia": "Escribe aquí la narración usando Markdown (negritas, títulos, etc.). Usa saltos de línea con \\n.",
+                "imagen_prompt": "Descripción visual en inglés, detallada, estilo años 30, arte cinematográfico."
             }
             """
             
-            # --- AQUÍ DEFINIMOS history_payload (Lo que faltaba) ---
+            # Construir historial limpio
             history_payload = []
             for m in st.session_state.messages:
-                role_api = "user" if m["role"] == "user" else "model"
-                content = m["parts"][0]
-                # Si el contenido es un JSON de un turno anterior, extraemos solo la historia 
-                # para no ensuciar la memoria del modelo con estructuras JSON viejas
-                if role_api == "model" and "{" in content:
-                    try:
-                        d = json.loads(content)
-                        content = d.get("historia", content)
-                    except:
-                        pass
-                history_payload.append({"role": role_api, "parts": [content]})
-            
+                role = "user" if m["role"] == "user" else "model"
+                raw_text = m["parts"][0]
+                # Extraer solo el texto de la historia para no confundir al modelo con JSON viejos
+                try:
+                    raw_text = json.loads(raw_text).get("historia", raw_text)
+                except:
+                    pass
+                history_payload.append({"role": role, "parts": [raw_text]})
+
             try:
                 chat = model.start_chat(history=history_payload[:-1])
+                response = chat.send_message(f"{system_instruction}\n\nAcción del usuario: {prompt}")
                 
-                # Al haber configurado response_mime_type: application/json arriba, 
-                # Gemini 3 ya sabe que solo debe escupir JSON.
-                response = chat.send_message(f"Acción del usuario: {prompt}")
-                
-                # --- DIAGNÓSTICO DE RESPUESTA ---
-                if not response.candidates or not response.candidates[0].content.parts:
-                    # Si no hay partes, miramos la razón técnica
-                    reason = response.candidates[0].finish_reason if response.candidates else "Desconocida"
-                    st.error(f"El modelo no devolvió texto. Razón técnica: {reason}")
-                    
-                    # Si fue por seguridad, avisamos
-                    if "SAFETY" in str(reason):
-                        st.warning("⚠️ La respuesta fue bloqueada por los filtros de seguridad de Google. Intenta una acción menos violenta o explícita.")
-                    st.stop()
-
-                # Extraer texto de forma segura
+                # Extracción robusta del texto
                 text_response = response.candidates[0].content.parts[0].text
                 
-                # 3. Parsear JSON (Gemini 3 con mime_type suele devolver JSON puro, sin ```json)
-                text_clean = text_response.strip()
-                if text_clean.startswith("```"):
-                    text_clean = text_clean.split("```")[1]
-                    if text_clean.startswith("json"): text_clean = text_clean[4:]
+                # Intentar parsear el JSON
+                try:
+                    data = json.loads(text_response)
+                    # Si tiene éxito, mostramos bien
+                    st.markdown(data.get("historia", ""))
+                    if "imagen_prompt" in data:
+                        st.image(get_image_url(data["imagen_prompt"]))
+                    st.session_state.messages.append({"role": "model", "parts": [text_response]})
                 
-                data = json.loads(text_clean)
-                
-                # Mostrar resultados
-                st.markdown(data.get("historia", "..."))
-                if "imagen_prompt" in data:
-                    st.image(get_image_url(data["imagen_prompt"]))
-                
-                st.session_state.messages.append({"role": "model", "parts": [text_response]})
-                
+                except json.JSONDecodeError:
+                    # FALLBACK: Si el modelo responde texto plano a pesar de todo
+                    st.markdown(text_response)
+                    # Creamos un JSON artificial para guardarlo en la sesión y que no falle el siguiente turno
+                    fallback_json = json.dumps({"historia": text_response, "imagen_prompt": "Cthulhu mythos mystery"})
+                    st.session_state.messages.append({"role": "model", "parts": [fallback_json]})
+            
             except Exception as e:
-                st.error(f"Error en el turno: {e}")
-                st.info("Respuesta cruda para depurar:")
-                st.code(response.text if 'response' in locals() else "Sin respuesta")
+                st.error(f"Error técnico: {e}")
