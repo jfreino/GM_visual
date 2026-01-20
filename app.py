@@ -19,7 +19,7 @@ except:
     st.stop()
 
 # Configurar el modelo
-model = genai.GenerativeModel('gemini-3-pro-preview')
+model = genai.GenerativeModel('gemini-3-flash-preview')
 
 # --- ESTADO DE LA SESIÓN (MEMORIA) ---
 if "messages" not in st.session_state:
@@ -122,6 +122,7 @@ if prompt := st.chat_input("Tu acción..."):
                 st.error(f"Error narrativo: {e}")
                 # Fallback por si el JSON falla
                 st.markdown("El narrador se ha confundido, intenta otra acción.")
+
 
 
 
